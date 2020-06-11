@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<RevitAddIns>
+  
+  <AddIn Type="Application">
+    <Name>NewAddin</Name>
+    <Assembly>NewRibbon.dll</Assembly>
+    <AddInId>EF94A825-7FFB-434D-A45D-63FDD6A2C290</AddInId>
+    <FullClassName>NEWREVITADDIN.ExternalApplication</FullClassName>
+    <VendorId>Curtins</VendorId>
+    <VendorDescription>Curtins</VendorDescription>
+  </AddIn>
+  
+</RevitAddIns>

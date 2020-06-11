@@ -1,0 +1,40 @@
+﻿<Window x:Class="NEWREVITADDIN.WelcomeForm"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:local="clr-namespace:NEWREVITADDIN"
+             mc:Ignorable="d" Title="Revit Chess"
+             d:DesignHeight="250" d:DesignWidth="400" Height="250" Width="400" >
+    <Grid Background="#FFB1D7EE">
+        <Grid Margin="10" Background="White" >
+            <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="20"></ColumnDefinition>
+            <ColumnDefinition Width="*"></ColumnDefinition>
+            <ColumnDefinition Width="*"></ColumnDefinition>
+            <ColumnDefinition Width="20"></ColumnDefinition>
+        </Grid.ColumnDefinitions>
+
+        <Grid.RowDefinitions>
+            <RowDefinition Height="10"></RowDefinition>
+            <RowDefinition Height="30"></RowDefinition>
+            <RowDefinition Height="*"></RowDefinition>
+            <RowDefinition Height="30"></RowDefinition>
+            <RowDefinition Height="10"></RowDefinition>
+        </Grid.RowDefinitions>
+
+        <TextBlock Text="Choose Opponent" Grid.Column="1" Grid.ColumnSpan="2" Grid.Row="1" FontSize="20" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold" ></TextBlock>
+        <TextBlock Text="Player Vs Player" Grid.Column="2" Grid.Row="3" FontSize="18" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold" ></TextBlock>
+        <TextBlock Text="Player Vs CPU" Grid.Column="1" Grid.Row="3" FontSize="18" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold" ></TextBlock>
+
+            <Border  Margin="15" Grid.Column="2" Grid.Row="2" BorderThickness="2" CornerRadius="10" BorderBrush="Black" Background="#FFE1E1E1">
+                <Image Source="img/multiplayer.png"  MouseUp="Image_MouseUp" OpacityMask="#FF969696"></Image>
+            </Border>
+
+            <Border  Margin="15" Grid.Column="1" Grid.Row="2" BorderThickness="2" CornerRadius="10" BorderBrush="Black" Background="#FFE1E1E1">
+                <Image Source="img/desktop-computer.png" Margin="5" MouseUp="Image_MouseUp_1"></Image>
+            </Border>
+
+        </Grid>
+    </Grid>
+</Window>
