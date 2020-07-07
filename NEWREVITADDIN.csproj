@@ -58,6 +58,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="BounceBall.cs" />
+    <Compile Include="ChessEngine.cs" />
     <Compile Include="StartGame.cs" />
     <Compile Include="Class\Bishop.cs" />
     <Compile Include="ExternalApplication.cs" />

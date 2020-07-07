@@ -21,49 +21,35 @@ namespace NEWREVITADDIN
         public FamilySymbol redSymbol { get; set; }
 
         public string turn = "White";
-        public bool vsCPU = true;
+        public bool playVsCPU = true;
+        string WhiteMoveForEngine;
+        public Process chessEngineProcess;
 
         public List<PieceClass> PieceList = new List<PieceClass>();
         public List<TileClass> Tiles = new List<TileClass>();
         public List<TileClass> HighlightedTiles = new List<TileClass>();
         public IList<Element> families = new List<Element>();
+        IList<Element> allFamilies;
         public Document doc;
         public ModelText modelText;
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
             WelcomeForm welcomeForm = new WelcomeForm();
             welcomeForm.ShowDialog();
-            vsCPU = welcomeForm.vsCPU;
+            playVsCPU = welcomeForm.vsCPU;
 
             UIApplication uiapp = commandData.Application;
             UIDocument uidoc = uiapp.ActiveUIDocument;
             PieceClass pieceToRemove = null;
             doc = uidoc.Document;
 
+            findExistingPieces();
+            clearBoard(allFamilies);
 
-            string filename = @"C:\Users\peter.morton\Documents\Chess\NextMove.txt";
-            Process process = new Process();
-            process.StartInfo.FileName = filename;
-            process.StartInfo.CreateNoWindow = false;
-            process.StartInfo.RedirectStandardInput = true;
-            process.StartInfo.UseShellExecute = false;
-            process.Start();
-            process.StandardInput.WriteLine("uci");
-            
-
-
-            ElementClassFilter FamilyInstanceFilter = new ElementClassFilter(typeof(FamilyInstance));
-            FilteredElementCollector FamilyInstanceCollector = new FilteredElementCollector(doc);
-            IList<Element> allFamilies = FamilyInstanceCollector.WherePasses(FamilyInstanceFilter).ToElements();
-
-            ElementClassFilter TextInstanceFilter = new ElementClassFilter(typeof(ModelText));
-            modelText = new FilteredElementCollector(doc).WherePasses(TextInstanceFilter).ToElements().First() as ModelText;
-
-            ElementClassFilter FamilyFilter = new ElementClassFilter(typeof(FamilySymbol));
-            families = new FilteredElementCollector(doc).WherePasses(FamilyFilter).ToElements();
-
-
-            clearBoard();
+            if (playVsCPU)
+            {
+                chessEngineProcess = ChessEngine.Start();
+            }
 
             using (Transaction t = new Transaction(doc, "Set Board"))
             {
@@ -73,309 +59,375 @@ namespace NEWREVITADDIN
                 t.Commit();
             }
 
-
-
-
-
-            for (int i = 0; i < 1;)
+            while (true)
             {
                 pieceToRemove = null;
-
-                isKingInCheck();
-
+                //isKingInCheck();
 
                 using (Transaction t = new Transaction(doc, "Test"))
                 {
                     t.Start();
 
-
                     Reference eleid = null;
-                    Element ele;
-                    try
-                    {
-                        if (turn == "White")
-                        {
-                            eleid = uidoc.Selection.PickObject(ObjectType.Element, new WhiteSelectionFilter());
-                            ele = doc.GetElement(eleid);
-                        }
-                        else if (vsCPU)
-                            ele = CPUMove();
-                        else
-                        {
-                            eleid = uidoc.Selection.PickObject(ObjectType.Element, new BlackSelectionFilter());
-                            ele = doc.GetElement(eleid);
-                        }
-                    }
-                    catch { break; }
+                    Element ele = null;
 
 
-                    if ((ele as FamilyInstance).Symbol.Family.Name != "ChessTile")
+                    //CPU Turn
+                    if (playVsCPU && turn == "Black")
                     {
-                        deleteHighlightedTiles();
-                        GetPieceClass(ele).HighlightMoveOptions();
+                        PieceClass piece =  ChessEngine.CPUMove(WhiteMoveForEngine, chessEngineProcess, PieceList);
+                        pieceToRemove = moveCPUPiece(piece, pieceToRemove);
                     }
+                   
+
                     else
                     {
-                        movePiece(ele);
-                        deleteHighlightedTiles();
-                    }
+                        //Get player to select an element
+                        bool selectionFailed = selectPiece(uidoc, ref eleid, ref ele);
 
+                        if (selectionFailed)
+                            break;
+
+                        //If chosen element is a chess piece then highlight its available moves
+                        if ((ele as FamilyInstance).Symbol.Family.Name != "ChessTile")
+                        {
+                            deleteHighlightedTiles();
+                            GetPieceClass(ele).HighlightMoveOptions();
+                        }
+                        //Otherwise element is a tile - therfore move chess piece to the location of the tile
+                        else
+                        {
+                            pieceToRemove = movePiece(ele, pieceToRemove);
+                            deleteHighlightedTiles();
+                        }
+                    }
                     t.Commit();
                     if (pieceToRemove != null)
                         PieceList.Remove(pieceToRemove);
                 }
             }
+            return Result.Succeeded;
+        }
 
-            void movePiece(Element ele)
+        private bool selectPiece(UIDocument uidoc, ref Reference eleid, ref Element ele)
+        {
+            try
             {
-                foreach (TileClass tile in HighlightedTiles)
+                if (turn == "White")
                 {
-                    if (tile.element.Id == ele.Id)
-                    {
-                        LocationPoint tileLoaction = tile.element.Location as LocationPoint;
-                        LocationPoint parentLoaction = tile.parentElement.Location as LocationPoint;
-                        parentLoaction.Point = tileLoaction.Point;
-
-                        //Change turn
-                        if (turn == "White")
-                            turn = "Black";
-                        else
-                            turn = "White";
-
-                        modelText.Text = turn + " To Move";
-
-                        PieceClass pawn = null;
-                        foreach (PieceClass piece in PieceList)
-                        {
-                            if (piece.Col == tile.column && piece.Row == tile.row)
-                            {
-                                doc.Delete(piece.element.Id);
-                                pieceToRemove = piece;
-                            }
-
-                            else if (piece.element.Id == tile.parentElement.Id)
-                            {
-                                piece.Col = tile.column;
-                                piece.Row = tile.row;
-                                if (checkPawnBecomesQueen(piece))
-                                    pawn = piece;
-                            }
-                        }
-
-                        if (pawn != null)
-                        {
-                            doc.Delete(pawn.element.Id);
-                            PieceList.Remove(pawn);
-                            PieceList.Add(new Queen(pawn.Color, pawn.Row, pawn.Col, this));
-                        }
-                    }
+                    eleid = uidoc.Selection.PickObject(ObjectType.Element, new WhiteSelectionFilter());
+                    ele = doc.GetElement(eleid);
                 }
-
-            }
-
-            void deleteHighlightedTiles()
-            {
-                if (HighlightedTiles.Count > 0)
-                {
-                    foreach (TileClass fam in HighlightedTiles)
-                    {
-                        if (fam.element is FamilyInstance)
-                        {
-                            doc.Delete(fam.element.Id);
-                        }
-                    }
-                    HighlightedTiles.Clear();
-                }
-            }
-
-            void clearBoard()
-            {
-                if (allFamilies.Count > 0)
-                {
-                    using (Transaction t = new Transaction(doc, "Clear Board"))
-                    {
-                        t.Start();
-                        foreach (Element ele in allFamilies)
-                        {
-                            doc.Delete(ele.Id);
-                        }
-                        t.Commit();
-                    }
-                }
-
-            }
-
-            void InitPieces()
-            {
-                for (int i = 1; i < 9; i++)
-                {
-                    PieceList.Add(new Pawn("Black", 2, i, this));
-                    PieceList.Add(new Pawn("White", 7, i, this));
-                }
-
-                int row = 1;
-                string color = "Black";
-                for (int i = 0; i < 2; i++)
-                {
-                    PieceList.Add(new Rook(color, row, 1, this));
-                    PieceList.Add(new Knight(color, row, 2, this));
-                    PieceList.Add(new Bishop(color, row, 3, this));
-                    PieceList.Add(new King(color, row, 4, this));
-                    PieceList.Add(new Queen(color, row, 5, this));
-                    PieceList.Add(new Bishop(color, row, 6, this));
-                    PieceList.Add(new Knight(color, row, 7, this));
-                    PieceList.Add(new Rook(color, row, 8, this));
-                    row = 8;
-                    color = "White";
-                }
-            }
-
-
-            void InitBoard()
-            {
-                whiteSymbol = families.First() as FamilySymbol;
-                blackSymbol = families.First() as FamilySymbol;
-
-                foreach (FamilySymbol ele in families)
-                {
-                    if (ele.Family.Name == "ChessTile")
-                    {
-                        if (ele.Name == "White Tile")
-                            whiteSymbol = ele;
-                        else if (ele.Name == "Black Tile")
-                            blackSymbol = ele;
-                        else if (ele.Name == "Green Tile")
-                            greenSymbol = ele;
-                        else if (ele.Name == "Red Tile")
-                            redSymbol = ele;
-                    }
-                }
-
-
-                bool stagger = true;
-                for (int ii = 1; ii < 9; ii++)
-                {
-                    for (int i = 1; i < 9; i++)
-                    {
-                        TileClass tc = new TileClass();
-                        tc.row = ii;
-                        tc.column = i;
-
-                        XYZ xyz = new XYZ(i, ii, 0);
-                        if (stagger)
-                        {
-                            tc.color = "Black";
-                            tc.element = doc.Create.NewFamilyInstance(xyz, blackSymbol, StructuralType.NonStructural);
-                        }
-                        else
-                        {
-                            tc.color = "White";
-                            tc.element = doc.Create.NewFamilyInstance(xyz, whiteSymbol, StructuralType.NonStructural);
-                        }
-                        Tiles.Add(tc);
-                        stagger = !stagger;
-                    }
-                    stagger = !stagger;
-                }
-            }
-
-            Element CPUMove()
-            {
-                if (HighlightedTiles.Count > 0)
-                {
-                    foreach (TileClass tile in HighlightedTiles)
-                    {
-                        if (tile.color == "Red")
-                            return tile.element;
-                    }
-
-                    return HighlightedTiles.First().element;
-                }
-
                 else
                 {
+                    eleid = uidoc.Selection.PickObject(ObjectType.Element, new BlackSelectionFilter());
+                    ele = doc.GetElement(eleid);
+                }
 
-                    List<PieceClass> allBlackPieces = PieceList.FindAll(x => x.Color == "Black");
-                    foreach (PieceClass piece in allBlackPieces)
+            }
+            catch { return true; }
+            return false;
+        }
+
+        private void findExistingPieces()
+        {
+            ElementClassFilter FamilyInstanceFilter = new ElementClassFilter(typeof(FamilyInstance));
+            FilteredElementCollector FamilyInstanceCollector = new FilteredElementCollector(doc);
+            allFamilies = FamilyInstanceCollector.WherePasses(FamilyInstanceFilter).ToElements();
+
+            ElementClassFilter TextInstanceFilter = new ElementClassFilter(typeof(ModelText));
+            modelText = new FilteredElementCollector(doc).WherePasses(TextInstanceFilter).ToElements().First() as ModelText;
+
+            ElementClassFilter FamilyFilter = new ElementClassFilter(typeof(FamilySymbol));
+            families = new FilteredElementCollector(doc).WherePasses(FamilyFilter).ToElements();
+        }
+
+        private PieceClass movePiece(Element ele, PieceClass pieceToRemove)
+        {
+            foreach (TileClass tile in HighlightedTiles)
+            {
+                if (tile.element.Id == ele.Id)
+                {
+                    LocationPoint tileLoaction = tile.element.Location as LocationPoint;
+                    LocationPoint parentLoaction = tile.parentElement.Location as LocationPoint;
+                    parentLoaction.Point = tileLoaction.Point;
+                    PieceClass pawn = null;
+
+                    foreach (PieceClass piece in PieceList)
+                    {
+                        if (piece.Col == tile.column && piece.Row == tile.row)
+                        {
+                            doc.Delete(piece.element.Id);
+                            pieceToRemove = piece;
+                           
+                        }
+
+                        else if (piece.element.Id == tile.parentElement.Id)
+                        {
+                            if (turn == "White" && playVsCPU)
+                                WhiteMoveForEngine = ChessEngine.generateMoveString(piece.Col, tile.column, piece.Row, tile.row);
+
+                            piece.Col = tile.column;
+                            piece.Row = tile.row;
+                            if (checkPawnBecomesQueen(piece))
+                                pawn = piece;
+                        }
+                    }
+
+                    //Change turn
+                    if (turn == "White")
+                        turn = "Black";
+                    else
+                        turn = "White";
+
+                    modelText.Text = turn + " To Move";
+
+                    if (pawn != null)
+                    {
+                        doc.Delete(pawn.element.Id);
+                        PieceList.Remove(pawn);
+                        PieceList.Add(new Queen(pawn.Color, pawn.Row, pawn.Col, this));
+                    }
+                }
+            }
+
+            return pieceToRemove;
+
+        }
+        private PieceClass moveCPUPiece(PieceClass piece, PieceClass pieceToRemove)
+        {
+            LocationPoint pieceOriginalLocation = piece.element.Location as LocationPoint;
+            var updatedPoint = new XYZ(piece.Col, piece.Row, 0);
+            pieceOriginalLocation.Point = updatedPoint;
+
+            PieceClass pawn = null;
+
+            foreach (PieceClass p in PieceList)
+            {
+                if (p.Col == piece.Col && p.Row == piece.Col)
+                {
+                    doc.Delete(p.element.Id);
+                    pieceToRemove = p;
+                }
+            }
+
+            if (checkPawnBecomesQueen(piece))
+                pawn = piece;
+
+            //Change turn
+            if (turn == "White")
+                turn = "Black";
+            else
+                turn = "White";
+
+            modelText.Text = turn + " To Move";
+
+            if (pawn != null)
+            {
+                doc.Delete(pawn.element.Id);
+                PieceList.Remove(pawn);
+                PieceList.Add(new Queen(pawn.Color, pawn.Row, pawn.Col, this));
+            }
+
+            return pieceToRemove;
+        }
+
+        private void isKingInCheck()
+        {
+            using (Transaction t = new Transaction(doc, "CheckCheck"))
+            {
+                t.Start();
+
+                List<PieceClass> allEnemyPieces = null;
+
+                if (turn != "White")
+                {
+                    allEnemyPieces = PieceList.FindAll(x => x.Color == "White");
+                    foreach (PieceClass piece in allEnemyPieces)
                     {
                         piece.HighlightMoveOptions();
                     }
-
-                    foreach (TileClass tile in HighlightedTiles)
+                }
+                else
+                {
+                    allEnemyPieces = PieceList.FindAll(x => x.Color == "Black");
+                    foreach (PieceClass piece in allEnemyPieces)
                     {
-                        if (tile.color == "Red")
-                            return tile.parentElement;
+                        piece.HighlightMoveOptions();
                     }
+                }
 
-                    deleteHighlightedTiles();
+                PieceClass king = null;
+                foreach (PieceClass _king in PieceList)
+                {
+                    if (_king.Color == turn)
+                        king = _king;
+                }
 
-                    int rnd = new Random().Next(1, allBlackPieces.Count());
-                    return allBlackPieces[rnd].element;
+
+
+                foreach (TileClass tile in HighlightedTiles)
+                {
+                    if (tile.column == king.Col && tile.row == king.Row)
+                        TaskDialog.Show("Check", turn + " King is in check.");
+                }
+
+                List<TileClass> tilesToRemove = new List<TileClass>();
+
+                foreach (TileClass tile in HighlightedTiles)
+                {
+                    string color = GetPieceClass(tile.parentElement).Color;
+                    if (color != turn)
+                    {
+                        doc.Delete(tile.element.Id);
+                        tilesToRemove.Add(tile);
+                    }
+                }
+                foreach (TileClass tile in tilesToRemove)
+                {
+                    HighlightedTiles.Remove(tile);
+                }
+                t.Commit();
+            }
+        }
+
+        public void deleteHighlightedTiles()
+        {
+            if (HighlightedTiles.Count > 0)
+            {
+                foreach (TileClass fam in HighlightedTiles)
+                {
+                    if (fam.element is FamilyInstance)
+                    {
+                        doc.Delete(fam.element.Id);
+                    }
+                }
+                HighlightedTiles.Clear();
+            }
+        }
+
+        private Element CPURandomMove()
+        {
+            if (HighlightedTiles.Count > 0)
+            {
+                foreach (TileClass tile in HighlightedTiles)
+                {
+                    if (tile.color == "Red")
+                        return tile.element;
+                }
+
+                return HighlightedTiles.First().element;
+            }
+
+            else
+            {
+
+                List<PieceClass> allBlackPieces = PieceList.FindAll(x => x.Color == "Black");
+                foreach (PieceClass piece in allBlackPieces)
+                {
+                    piece.HighlightMoveOptions();
+                }
+
+                foreach (TileClass tile in HighlightedTiles)
+                {
+                    if (tile.color == "Red")
+                        return tile.parentElement;
+                }
+
+                deleteHighlightedTiles();
+
+                int rnd = new Random().Next(1, allBlackPieces.Count());
+                return allBlackPieces[rnd].element;
+            }
+        }
+
+        private void InitBoard()
+        {
+            whiteSymbol = families.First() as FamilySymbol;
+            blackSymbol = families.First() as FamilySymbol;
+
+            foreach (FamilySymbol ele in families)
+            {
+                if (ele.Family.Name == "ChessTile")
+                {
+                    if (ele.Name == "White Tile")
+                        whiteSymbol = ele;
+                    else if (ele.Name == "Black Tile")
+                        blackSymbol = ele;
+                    else if (ele.Name == "Green Tile")
+                        greenSymbol = ele;
+                    else if (ele.Name == "Red Tile")
+                        redSymbol = ele;
                 }
             }
 
 
-            void isKingInCheck()
+            bool stagger = true;
+            for (int ii = 1; ii < 9; ii++)
             {
-                using (Transaction t = new Transaction(doc, "CheckCheck"))
+                for (int i = 1; i < 9; i++)
                 {
-                    t.Start();
+                    TileClass tc = new TileClass();
+                    tc.row = ii;
+                    tc.column = i;
 
-                    List<PieceClass> allEnemyPieces = null;
-
-                    if (turn != "White")
+                    XYZ xyz = new XYZ(i, ii, 0);
+                    if (stagger)
                     {
-                        allEnemyPieces = PieceList.FindAll(x => x.Color == "White");
-                        foreach (PieceClass piece in allEnemyPieces)
-                        {
-                            piece.HighlightMoveOptions();
-                        }
+                        tc.color = "Black";
+                        tc.element = doc.Create.NewFamilyInstance(xyz, blackSymbol, StructuralType.NonStructural);
                     }
                     else
                     {
-                        allEnemyPieces = PieceList.FindAll(x => x.Color == "Black");
-                        foreach (PieceClass piece in allEnemyPieces)
-                        {
-                            piece.HighlightMoveOptions();
-                        }
+                        tc.color = "White";
+                        tc.element = doc.Create.NewFamilyInstance(xyz, whiteSymbol, StructuralType.NonStructural);
                     }
+                    Tiles.Add(tc);
+                    stagger = !stagger;
+                }
+                stagger = !stagger;
+            }
+        }
 
-                    PieceClass king = null;
-                    foreach (PieceClass _king in PieceList)
+        private void clearBoard(IList<Element> allFamilies)
+        {
+            if (allFamilies.Count > 0)
+            {
+                using (Transaction t = new Transaction(doc, "Clear Board"))
+                {
+                    t.Start();
+                    foreach (Element ele in allFamilies)
                     {
-                        if (_king.Color == turn)
-                            king = _king;
-                    }
-
-
-
-                    foreach (TileClass tile in HighlightedTiles)
-                    {
-                        if (tile.column == king.Col && tile.row == king.Row)
-                            TaskDialog.Show("Check", turn + " King is in check.");
-                    }
-
-                    List<TileClass> tilesToRemove = new List<TileClass>();
-
-                    foreach (TileClass tile in HighlightedTiles)
-                    {
-                        string color = GetPieceClass(tile.parentElement).Color;
-                        if (color != turn)
-                        {
-                            doc.Delete(tile.element.Id);
-                            tilesToRemove.Add(tile);
-                        }
-                    }
-                    foreach (TileClass tile in tilesToRemove)
-                    {
-                        HighlightedTiles.Remove(tile);
+                        doc.Delete(ele.Id);
                     }
                     t.Commit();
                 }
             }
+        }
 
-            return Result.Succeeded;
+        private void InitPieces()
+        {
+            for (int i = 1; i < 9; i++)
+            {
+                PieceList.Add(new Pawn("Black", 2, i, this));
+                PieceList.Add(new Pawn("White", 7, i, this));
+            }
 
+            int row = 1;
+            string color = "Black";
+            for (int i = 0; i < 2; i++)
+            {
+                PieceList.Add(new Rook(color, row, 1, this));
+                PieceList.Add(new Knight(color, row, 2, this));
+                PieceList.Add(new Bishop(color, row, 3, this));
+                PieceList.Add(new King(color, row, 4, this));
+                PieceList.Add(new Queen(color, row, 5, this));
+                PieceList.Add(new Bishop(color, row, 6, this));
+                PieceList.Add(new Knight(color, row, 7, this));
+                PieceList.Add(new Rook(color, row, 8, this));
+                row = 8;
+                color = "White";
+            }
         }
 
         bool checkPawnBecomesQueen(PieceClass piece)
@@ -479,9 +531,6 @@ namespace NEWREVITADDIN
             }
             return null;
         }
-
-
-
     }
 }
 
